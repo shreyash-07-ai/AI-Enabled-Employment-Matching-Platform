@@ -1,0 +1,11 @@
+rank,filename,score_pct,keyword_match_pct,matched_keywords,missing_keywords
+1,Anushka-kolteCV - Anushka kolte.pdf,47.54,62.5,"data, data science, ml, nlp, nlp data, python, python sql, science, sql, sql ml","analyst, analyst data, data analyst, dl, dl nlp, ml dl"
+2,Aditikuhar_GSMCOE - aditi kuhar.pdf,46.67,62.5,"data, data science, ml, nlp, nlp data, python, python sql, science, sql, sql ml","analyst, analyst data, data analyst, dl, dl nlp, ml dl"
+3,Bapuji Hadoop developer.pdf,29.79,50.0,"data, data science, ml, python, python sql, science, sql, sql ml","analyst, analyst data, data analyst, dl, dl nlp, ml dl, nlp, nlp data"
+4,Alhad Thakare-DA-CV - Alhad Thakare.pdf,28.61,43.8,"analyst, analyst data, data, data analyst, python, python sql, sql","data science, dl, dl nlp, ml, ml dl, nlp, nlp data, science, sql ml"
+5,Bariya-Shaikh-Resume - Bariya Shaikh.pdf,23.21,56.2,"analyst, analyst data, data, data analyst, data science, python, python sql, science, sql","dl, dl nlp, ml, ml dl, nlp, nlp data, sql ml"
+6,BA - Abhishek.pdf,21.64,31.2,"analyst, analyst data, data, data analyst, sql","data science, dl, dl nlp, ml, ml dl, nlp, nlp data, python, python sql, science, sql ml"
+7,Amar Sr BSA.pdf,20.88,43.8,"analyst, analyst data, data, data analyst, data science, science, sql","dl, dl nlp, ml, ml dl, nlp, nlp data, python, python sql, sql ml"
+8,Arpita_Resume(aa) - Arpita Ambalkar.pdf,20.67,25.0,"data, python, python sql, sql","analyst, analyst data, data analyst, data science, dl, dl nlp, ml, ml dl, nlp, nlp data, science, sql ml"
+9,Ankita_Kadam_9673051165 - Ankita Kadam.pdf,20.45,37.5,"data, data science, python, python sql, science, sql","analyst, analyst data, data analyst, dl, dl nlp, ml, ml dl, nlp, nlp data, sql ml"
+10,B Shaker-Sr BSA-Scrum Master .pdf,18.83,31.2,"analyst, analyst data, data, data analyst, sql","data science, dl, dl nlp, ml, ml dl, nlp, nlp data, python, python sql, science, sql ml"

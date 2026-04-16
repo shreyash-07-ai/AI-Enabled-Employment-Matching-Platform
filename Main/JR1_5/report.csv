@@ -1,0 +1,5 @@
+rank,filename,score_pct,keyword_match_pct,matched_keywords,missing_keywords
+1,Alhad Thakare-DA-CV - Alhad Thakare.pdf,15.73,43.8,"analyst, analyst data, data, data analyst, python, python sql, sql","data science, dl, dl nlp, ml, ml dl, nlp, nlp data, science, sql ml"
+2,Aditikuhar_GSMCOE - aditi kuhar.pdf,14.81,62.5,"data, data science, ml, nlp, nlp data, python, python sql, science, sql, sql ml","analyst, analyst data, data analyst, dl, dl nlp, ml dl"
+3,Anushka-kolteCV - Anushka kolte.pdf,12.57,62.5,"data, data science, ml, nlp, nlp data, python, python sql, science, sql, sql ml","analyst, analyst data, data analyst, dl, dl nlp, ml dl"
+4,BA - Abhishek.pdf,11.9,31.2,"analyst, analyst data, data, data analyst, sql","data science, dl, dl nlp, ml, ml dl, nlp, nlp data, python, python sql, science, sql ml"
