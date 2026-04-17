@@ -10,10 +10,16 @@ app = Celery('core')
 # the configuration object to child processes.
 # - namespace='CELERY' means all celery-related configuration keys
 #   should have a `CELERY_` prefix.
-app.config_from_object('django.conf:settings', namespace='CELERY')
+try:
+    app.config_from_object('django.conf:settings', namespace='CELERY')
+except Exception as e:
+    print(f"Warning: Celery configuration issue: {e}")
 
 # Load task modules from all registered Django apps.
-app.autodiscover_tasks()
+try:
+    app.autodiscover_tasks()
+except Exception as e:
+    print(f"Warning: Could not autodiscover Celery tasks: {e}")
 
 @app.task(bind=True, ignore_result=True)
 def debug_task(self):

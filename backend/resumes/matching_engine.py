@@ -43,11 +43,23 @@ except ImportError:
 
 # ── NLTK bootstrap ──────────────────────────────────────────────────
 logging.getLogger("pdfminer").setLevel(logging.ERROR)
-for pkg in ["punkt", "stopwords", "punkt_tab"]:
-    try:
-        nltk.download(pkg, quiet=True)
-    except Exception:
-        pass
+
+# Download NLTK packages lazily when needed (not at import time)
+_NLTK_DOWNLOADED = False
+
+def ensure_nltk_data():
+    """Download NLTK data packages if not already done"""
+    global _NLTK_DOWNLOADED
+    if _NLTK_DOWNLOADED:
+        return
+    
+    for pkg in ["punkt", "stopwords", "punkt_tab"]:
+        try:
+            nltk.download(pkg, quiet=True)
+        except Exception as e:
+            log = logging.getLogger(__name__)
+            log.warning(f"Could not download NLTK package {pkg}: {e}")
+    _NLTK_DOWNLOADED = True
 
 log = logging.getLogger(__name__)
 
@@ -115,7 +127,15 @@ SKILL_SYNONYMS = {
 # ════════════════════════════════════════════════════════════════════
 # TEXT EXTRACTION
 # ════════════════════════════════════════════════════════════════════
-STOP_WORDS = set(stopwords.words("english"))
+_STOP_WORDS = None
+
+def get_stop_words():
+    """Get English stop words, downloading NLTK data if needed"""
+    global _STOP_WORDS
+    if _STOP_WORDS is None:
+        ensure_nltk_data()
+        _STOP_WORDS = set(stopwords.words("english"))
+    return _STOP_WORDS
 
 
 def extract_pdf(path: str) -> str:
@@ -156,11 +176,13 @@ def extract_text_from_file(path: str) -> str:
 # ════════════════════════════════════════════════════════════════════
 def clean_text(text: str) -> str:
     """Lowercase, strip URLs/emails, remove non-alphanumeric, remove stopwords."""
+    ensure_nltk_data()
     text = text.lower()
     text = re.sub(r"http\S+|www\S+|\S+@\S+", " ", text)
     text = re.sub(r"[^a-z0-9\s]", " ", text)
     tokens = word_tokenize(text)
-    tokens = [w for w in tokens if w not in STOP_WORDS and len(w) > 1]
+    stop_words = get_stop_words()
+    tokens = [w for w in tokens if w not in stop_words and len(w) > 1]
     return " ".join(tokens)
 
 
