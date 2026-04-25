@@ -128,7 +128,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── Testimonials ──────────────────────────── */}
-      <section className="max-w-5xl mx-auto px-6 py-20">
+      {/* <section className="max-w-5xl mx-auto px-6 py-20">
         <div className="text-center mb-16">
           <h2 className="text-3xl font-bold">What People <span className="gradient-text">Say</span></h2>
         </div>
@@ -145,7 +145,7 @@ export default function LandingPage() {
             </div>
           ))}
         </div>
-      </section>
+      </section> */}
 
       {/* ── CTA ───────────────────────────────────── */}
       <section className="max-w-4xl mx-auto px-6 py-20 text-center">
