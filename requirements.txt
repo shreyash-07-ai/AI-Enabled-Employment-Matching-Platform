@@ -1,5 +1,4 @@
 streamlit>=1.45,<2
-Django>=5.2,<6
 nltk>=3.9,<4
 numpy>=2.0,<3
 scikit-learn>=1.7,<2
