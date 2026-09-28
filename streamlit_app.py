@@ -1,167 +1,143 @@
 import os
+import shutil
+import socket
+import subprocess
 import sys
-import tempfile
+import time
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 
-# Keep the existing matching engine untouched.
-BACKEND_DIR = Path(__file__).resolve().parent / "backend"
-if str(BACKEND_DIR) not in sys.path:
-    sys.path.insert(0, str(BACKEND_DIR))
 
-from resumes.matching_engine import compute_match, extract_text_from_file
+PROJECT_ROOT = Path(__file__).resolve().parent
+BACKEND_DIR = PROJECT_ROOT / "backend"
+FRONTEND_DIR = PROJECT_ROOT / "frontend"
+
+DJANGO_HOST = "127.0.0.1"
+DJANGO_PORT = 8000
+FRONTEND_HOST = "127.0.0.1"
+FRONTEND_PORT = 5173
+FRONTEND_URL = f"http://{FRONTEND_HOST}:{FRONTEND_PORT}/login"
+
+_processes = []
+
+
+def port_is_open(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.5)
+        return sock.connect_ex((host, port)) == 0
+
+
+def start_backend() -> None:
+    if port_is_open(DJANGO_HOST, DJANGO_PORT):
+        return
+
+    # Use the same Python interpreter that launched Streamlit.
+    subprocess.run(
+        [sys.executable, "manage.py", "migrate", "--noinput"],
+        cwd=BACKEND_DIR,
+        check=True,
+    )
+
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "manage.py",
+            "runserver",
+            f"{DJANGO_HOST}:{DJANGO_PORT}",
+            "--noreload",
+        ],
+        cwd=BACKEND_DIR,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,
+    )
+    _processes.append(process)
+
+
+def start_frontend() -> None:
+    if port_is_open(FRONTEND_HOST, FRONTEND_PORT):
+        return
+
+    npm = shutil.which("npm.cmd") or shutil.which("npm")
+    if not npm:
+        raise RuntimeError(
+            "Node.js/npm was not found. Install Node.js and make sure 'npm' "
+            "works in a new terminal."
+        )
+
+    node_modules = FRONTEND_DIR / "node_modules"
+    if not node_modules.exists():
+        subprocess.run([npm, "install"], cwd=FRONTEND_DIR, check=True)
+
+    process = subprocess.Popen(
+        [npm, "run", "dev", "--", "--host", FRONTEND_HOST],
+        cwd=FRONTEND_DIR,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,
+    )
+    _processes.append(process)
+
+
+def wait_for_services(timeout: int = 60) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if port_is_open(DJANGO_HOST, DJANGO_PORT) and port_is_open(
+            FRONTEND_HOST, FRONTEND_PORT
+        ):
+            return
+        time.sleep(1)
+
+    raise RuntimeError(
+        "The frontend/backend did not start within the expected time. "
+        "Check that Python dependencies and Node.js/npm are installed."
+    )
+
+
+def stop_children() -> None:
+    for process in _processes:
+        if process.poll() is None:
+            try:
+                process.terminate()
+            except OSError:
+                pass
+
+
+import atexit
+
+atexit.register(stop_children)
 
 
 st.set_page_config(
-    page_title="AI Employment Matching Platform",
+    page_title="AI-Enabled Employment Matching Platform",
     page_icon="🎯",
     layout="wide",
 )
 
-st.title("🎯 AI-Enabled Employment Matching Platform")
-st.caption(
-    "Streamlit deployment layer using the existing TF-IDF + BM25 + SBERT matching engine."
-)
+st.title("AI-Enabled Employment Matching Platform")
 
-st.info(
-    "This Streamlit app is a standalone deployment interface. "
-    "The existing Django + React application remains unchanged."
-)
+try:
+    with st.spinner("Starting the existing Django backend and React frontend..."):
+        start_backend()
+        start_frontend()
+        wait_for_services()
 
-with st.sidebar:
-    st.header("⚙️ Matching Settings")
-    st.write("The original project weights are used by default:")
-    st.code("TF-IDF  25%\nBM25    15%\nSBERT   60%")
-    st.markdown("---")
-    st.write("Supported resume formats: PDF, DOCX")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader("📄 Resume")
-    resume_file = st.file_uploader(
-        "Upload a resume",
-        type=["pdf", "docx"],
-        help="Upload a text-based PDF or DOCX resume.",
+    st.success("Application is running.")
+    st.caption(
+        "This is the original React + Django application. "
+        "Streamlit is only being used as the local launcher."
     )
 
-with col2:
-    st.subheader("💼 Job Description")
-    job_title = st.text_input(
-        "Job title",
-        placeholder="e.g. AI/ML Engineer",
-    )
-    job_description = st.text_area(
-        "Paste the complete job description",
-        height=280,
-        placeholder="Paste the job description, required skills, responsibilities, education and experience...",
+    components.iframe(
+        FRONTEND_URL,
+        height=900,
+        scrolling=True,
     )
 
-analyze = st.button("🚀 Analyze Match", type="primary", use_container_width=True)
+except subprocess.CalledProcessError as exc:
+    st.error("A project startup command failed.")
+    st.code(str(exc))
 
-if analyze:
-    if not resume_file:
-        st.error("Please upload a PDF or DOCX resume.")
-        st.stop()
-
-    if not job_description.strip():
-        st.error("Please enter a job description.")
-        st.stop()
-
-    temp_path = None
-
-    try:
-        suffix = Path(resume_file.name).suffix.lower()
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(resume_file.getbuffer())
-            temp_path = tmp.name
-
-        with st.spinner("Extracting resume and calculating AI match..."):
-            resume_text = extract_text_from_file(temp_path)
-
-            if not resume_text.strip():
-                st.error(
-                    "No readable text was extracted from the resume. "
-                    "Try a text-based PDF or DOCX file."
-                )
-                st.stop()
-
-            result = compute_match(resume_text, job_description)
-
-        st.success("Match analysis completed.")
-
-        score = float(result["match_score_pct"])
-
-        st.subheader("📊 Match Result")
-        score_col, tf_col, bm_col, sb_col = st.columns(4)
-
-        score_col.metric("Overall Match", f"{score:.2f}%")
-        tf_col.metric("TF-IDF", f'{result["tfidf_score"]:.2f}%')
-        bm_col.metric("BM25", f'{result["bm25_score"]:.2f}%')
-        sb_col.metric("SBERT", f'{result["sbert_score"]:.2f}%')
-
-        if job_title:
-            st.write(f"**Job:** {job_title}")
-
-        st.progress(min(max(score / 100, 0.0), 1.0))
-
-        left, right = st.columns(2)
-
-        with left:
-            st.subheader("✅ Matched Skills")
-            matched = result.get("matched_skills", [])
-            if matched:
-                st.write(", ".join(matched))
-            else:
-                st.write("No known matching skills detected.")
-
-        with right:
-            st.subheader("⚠️ Missing Skills")
-            missing = result.get("missing_skills", [])
-            if missing:
-                st.write(", ".join(missing))
-            else:
-                st.write("No missing skills detected from the known skill database.")
-
-        st.subheader("💡 Resume Suggestions")
-        suggestions = result.get("suggestions", [])
-        if suggestions:
-            for suggestion in suggestions:
-                st.write(f"• {suggestion}")
-        else:
-            st.write("No additional suggestions.")
-
-        with st.expander("🔍 Matching Engine Details"):
-            st.json(
-                {
-                    "engines_used": result.get("engines_used", {}),
-                    "resume_characters": len(resume_text),
-                    "job_description_characters": len(job_description),
-                }
-            )
-
-        with st.expander("📄 Extracted Resume Text"):
-            st.text_area(
-                "Resume text",
-                resume_text,
-                height=350,
-                label_visibility="collapsed",
-            )
-
-    except Exception as exc:
-        st.error("The analysis could not be completed.")
-        st.exception(exc)
-
-    finally:
-        if temp_path and os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-            except OSError:
-                pass
-
-st.markdown("---")
-st.caption(
-    "AI-Enabled Employment Matching Platform • Existing matching engine preserved"
-)
+except Exception as exc:
+    st.error("The application could not be started.")
+    st.exception(exc)
