@@ -20,7 +20,7 @@
 Passwords :
 
 -> Recruiter account:
-   username: ms
+   username: MS
    password: 12345678
 
 -> Candidate account:

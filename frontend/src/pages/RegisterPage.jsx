@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { register as registerAPI } from '../services/api';
+import { register as registerAPI, getErrorMessage } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 export default function RegisterPage() {
@@ -33,11 +33,7 @@ export default function RegisterPage() {
       });
       navigate('/login');
     } catch (err) {
-      const data = err.response?.data;
-      const msg = data
-        ? Object.values(data).flat().join(' ')
-        : 'Registration failed';
-      setError(msg);
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }

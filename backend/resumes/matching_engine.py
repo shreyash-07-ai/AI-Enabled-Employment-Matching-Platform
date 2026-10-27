@@ -35,10 +35,15 @@ except ImportError:
     BM25_AVAILABLE = False
 
 # ── Optional: Sentence Transformers ─────────────────────────────────
+# Catches ImportError (package missing) and RuntimeError (numpy ABI mismatch
+# between numpy 2.x and older transformers builds).  Falls back gracefully
+# to TF-IDF+BM25 only — the rest of the app is unaffected.
 try:
     from sentence_transformers import SentenceTransformer, util as st_util
     SBERT_AVAILABLE = True
-except ImportError:
+except Exception:
+    SentenceTransformer = None  # type: ignore[assignment,misc]
+    st_util = None              # type: ignore[assignment]
     SBERT_AVAILABLE = False
 
 # ── NLTK bootstrap ──────────────────────────────────────────────────

@@ -10,26 +10,39 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+# ---------------------------------------------------------------------------
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
+# ---------------------------------------------------------------------------
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-q0mfplhacp0=m@6ka3o6dv+2x=(5%*gzu_*4*y!xsn_i&wi-gb'
+# Set SECRET_KEY environment variable on Render. The default below is for
+# local development only and must NOT be used in production.
+SECRET_KEY = os.environ.get(
+    'SECRET_KEY',
+    'django-insecure-q0mfplhacp0=m@6ka3o6dv+2x=(5%*gzu_*4*y!xsn_i&wi-gb'
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Set DEBUG=False on Render.
+DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = ['*']
-CSRF_TRUSTED_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173']
+# Comma-separated list of allowed hosts, e.g. "your-app.onrender.com"
+# Set ALLOWED_HOSTS environment variable on Render.
+_raw_allowed = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1')
+ALLOWED_HOSTS = [h.strip() for h in _raw_allowed.split(',') if h.strip()]
 
-
+# ---------------------------------------------------------------------------
 # Application definition
+# ---------------------------------------------------------------------------
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -48,6 +61,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # WhiteNoise must come directly after SecurityMiddleware
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -77,20 +92,37 @@ TEMPLATES = [
 WSGI_APPLICATION = 'core.wsgi.application'
 
 
+# ---------------------------------------------------------------------------
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+#
+# On Render: add a PostgreSQL database, then set the DATABASE_URL env-var.
+# Locally falls back to SQLite so no extra setup is needed.
+# ---------------------------------------------------------------------------
+_database_url = os.environ.get('DATABASE_URL', '')
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+if _database_url:
+    import dj_database_url
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=_database_url,
+            conn_max_age=600,
+            ssl_require=True,
+        )
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 
+# ---------------------------------------------------------------------------
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
-
+# ---------------------------------------------------------------------------
 AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
@@ -107,9 +139,10 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
+# ---------------------------------------------------------------------------
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
-
+# ---------------------------------------------------------------------------
 LANGUAGE_CODE = 'en-us'
 
 TIME_ZONE = 'UTC'
@@ -119,20 +152,39 @@ USE_I18N = True
 USE_TZ = True
 
 
+# ---------------------------------------------------------------------------
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
-
+# ---------------------------------------------------------------------------
 STATIC_URL = 'static/'
 
+# STATIC_ROOT is where collectstatic writes files for production serving.
+# WhiteNoise will serve from this directory.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Enable WhiteNoise compression and caching support
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# ---------------------------------------------------------------------------
+# Media files (for Resume Uploads)
+# ---------------------------------------------------------------------------
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# ---------------------------------------------------------------------------
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
-
+# ---------------------------------------------------------------------------
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# ---------------------------------------------------------------------------
 # Custom User Model
+# ---------------------------------------------------------------------------
 AUTH_USER_MODEL = 'accounts.User'
 
+# ---------------------------------------------------------------------------
 # REST Framework Configuration
+# ---------------------------------------------------------------------------
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -142,8 +194,9 @@ REST_FRAMEWORK = {
     ),
 }
 
+# ---------------------------------------------------------------------------
 # JWT Configuration
-from datetime import timedelta
+# ---------------------------------------------------------------------------
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
@@ -152,21 +205,40 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
+# ---------------------------------------------------------------------------
 # CORS Configuration
-CORS_ALLOW_ALL_ORIGINS = True  # For development only
+# On Render: set CORS_ALLOWED_ORIGINS=https://ai-employment-matching.vercel.app
+# ---------------------------------------------------------------------------
+_cors_origins_raw = os.environ.get(
+    'CORS_ALLOWED_ORIGINS',
+    'http://localhost:5173,http://127.0.0.1:5173'
+)
+CORS_ALLOWED_ORIGINS = [o.strip() for o in _cors_origins_raw.split(',') if o.strip()]
 
-# Media files (for Resume Uploads)
-import os
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+# Allow credentials (cookies / auth headers) across origins
+CORS_ALLOW_CREDENTIALS = True
 
+# ---------------------------------------------------------------------------
+# CSRF Trusted Origins
+# On Render: also add your Vercel URL here via CSRF_TRUSTED_ORIGINS env-var
+# ---------------------------------------------------------------------------
+_csrf_raw = os.environ.get(
+    'CSRF_TRUSTED_ORIGINS',
+    'http://localhost:5173,http://127.0.0.1:5173'
+)
+CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_raw.split(',') if o.strip()]
+
+# ---------------------------------------------------------------------------
 # Celery Configuration
-# Comment out for development without Redis - uncomment when Redis is running
-CELERY_BROKER_URL = 'redis://localhost:6379/0'
-CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+# On Render: set REDIS_URL env-var if you provision a Redis instance.
+# Without Redis, Celery tasks will not run; the app still starts correctly.
+# ---------------------------------------------------------------------------
+_redis_url = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+CELERY_BROKER_URL = _redis_url
+CELERY_RESULT_BACKEND = _redis_url
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 
-# For development without Redis, use this instead:
+# For development without Redis, uncomment these instead:
 # CELERY_ALWAYS_EAGER = True
 # CELERY_EAGER_PROPAGATES_EXCEPTIONS = True

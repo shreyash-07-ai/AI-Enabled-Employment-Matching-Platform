@@ -1,12 +1,32 @@
-@"
+# Python
 .venv/
 venv/
-**/node_modules/
-**/__pycache__/
-**/*.py[cod]
-**/.env
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Django
+*.sqlite3
+/backend/staticfiles/
+/backend/media/
+
+# Environment variables — never commit secrets
 .env
 .env.*
 !.env.example
+
+# Node / frontend
+**/node_modules/
 frontend/dist/
-"@ | Set-Content .gitignore
+frontend/.vite/
+
+# IDE / OS
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
