@@ -1,10 +1,10 @@
 import axios from 'axios';
 
 /**
- * In production (Vercel), VITE_API_BASE_URL must be set to the full Render
- * backend URL, e.g. https://your-app.onrender.com/api
+ * In production (Vercel), set VITE_API_BASE_URL to:
+ *   https://ai-enabled-employment-matching-platform-1.onrender.com/api
  *
- * In local development the Vite proxy forwards /api → http://127.0.0.1:8000
+ * In local development the Vite proxy forwards /api -> http://127.0.0.1:8000
  * so the default '/api' works without any environment variable.
  */
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -46,56 +46,81 @@ API.interceptors.response.use(
 
 /**
  * Extract a human-readable error message from an Axios error.
- * Handles Django REST Framework validation errors, network errors,
- * and HTTP 400 / 401 / 403 / 404 / 409 / 500 responses safely.
  *
- * Never exposes raw server tracebacks or passwords.
+ * Handles:
+ *  - Network / no-response errors (backend down, CORS blocked, cold-start timeout)
+ *  - Django REST Framework field validation errors  { field: ["msg", ...] }
+ *  - DRF non-field errors                          { non_field_errors: ["msg"] }
+ *  - DRF detail errors                             { detail: "msg" }
+ *  - Plain string bodies
+ *  - HTML responses (Django debug page, Vercel 404)
+ *  - Array of messages
+ *  - HTTP 400 / 401 / 403 / 404 / 409 / 429 / 500
+ *
+ * Never renders a raw JavaScript object, never exposes tracebacks or secrets.
  */
 export function getErrorMessage(err) {
-  // Network / no-response errors
+  // Network error — no response received at all
   if (!err.response) {
+    if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+      return 'Request timed out — the server may be starting up. Please try again in a moment.';
+    }
     return 'Network error — please check your connection and try again.';
   }
 
   const status = err.response.status;
   const data = err.response.data;
 
-  // 500 — don't leak server internals
+  // 5xx — never leak server internals
   if (status >= 500) {
     return 'Server error — please try again later.';
   }
 
-  // No data body
-  if (!data) {
+  // 429 Too Many Requests
+  if (status === 429) {
+    return 'Too many requests — please wait a moment and try again.';
+  }
+
+  // No body
+  if (data === null || data === undefined) {
     return `Request failed (HTTP ${status}).`;
   }
 
-  // Django validation errors: { field: ["msg", ...], non_field_errors: [...] }
-  if (typeof data === 'object' && !Array.isArray(data)) {
-    const messages = [];
-    for (const [field, value] of Object.entries(data)) {
-      const label = field === 'non_field_errors' || field === 'detail' ? '' : `${field}: `;
-      if (Array.isArray(value)) {
-        messages.push(`${label}${value.join(' ')}`);
-      } else if (typeof value === 'string') {
-        messages.push(`${label}${value}`);
-      }
-    }
-    if (messages.length > 0) return messages.join(' ');
-  }
-
-  // Plain string error
+  // HTML response (Django debug page, Vercel 404, nginx error page)
   if (typeof data === 'string') {
-    // Avoid showing HTML (Django debug pages, tracebacks)
     if (data.trim().startsWith('<')) {
-      return `Request failed (HTTP ${status}).`;
+      return `Request failed (HTTP ${status}). The server returned an unexpected response.`;
     }
     return data;
   }
 
+  // DRF validation object: { field: ["msg", ...], non_field_errors: [...], detail: "..." }
+  if (typeof data === 'object' && !Array.isArray(data)) {
+    const messages = [];
+
+    // Prioritise top-level detail
+    if (data.detail) {
+      return typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+    }
+
+    for (const [field, value] of Object.entries(data)) {
+      const label = field === 'non_field_errors' ? '' : `${field}: `;
+      if (Array.isArray(value)) {
+        messages.push(`${label}${value.join(' ')}`);
+      } else if (typeof value === 'string') {
+        messages.push(`${label}${value}`);
+      } else if (typeof value === 'object' && value !== null) {
+        // Nested validation objects (rare but possible)
+        messages.push(`${label}${JSON.stringify(value)}`);
+      }
+    }
+
+    if (messages.length > 0) return messages.join(' | ');
+  }
+
   // Array of messages
   if (Array.isArray(data)) {
-    return data.join(' ');
+    return data.map((m) => (typeof m === 'string' ? m : JSON.stringify(m))).join(' ');
   }
 
   return `Request failed (HTTP ${status}).`;

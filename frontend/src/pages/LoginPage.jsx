@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { login as loginAPI } from '../services/api';
+import { login as loginAPI, getErrorMessage } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 export default function LoginPage() {
@@ -19,7 +19,7 @@ export default function LoginPage() {
       loginUser(data.access, data.refresh);
       navigate('/dashboard');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Invalid credentials');
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
