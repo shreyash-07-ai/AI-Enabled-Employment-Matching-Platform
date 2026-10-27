@@ -362,3 +362,5 @@ LOGGING = {
 # The app, authentication, jobs, and resume upload all continue to work;
 # match_score_pct is computed with TF-IDF + BM25 only.
 # Default: False (safe for free tier; set True on Starter+ plans)
+SBERT_ENABLED = os.environ.get('SBERT_ENABLED', 'False').strip().lower() in ('true', '1', 'yes')
+

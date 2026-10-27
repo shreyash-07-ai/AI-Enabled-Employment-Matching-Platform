@@ -1,15 +1,29 @@
 import axios from 'axios';
 
 /**
- * In production (Vercel), set VITE_API_BASE_URL to:
- *   https://ai-enabled-employment-matching-platform-1.onrender.com/api
- *
- * In local development the Vite proxy forwards /api -> http://127.0.0.1:8000
- * so the default '/api' works without any environment variable.
+ * Normalizes API base URL:
+ * - Defaults to '/api' for local development (handled by Vite proxy)
+ * - Strips trailing slashes
+ * - Ensures it ends with '/api' without duplicating '/api/api'
  */
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+function getApiBaseUrl() {
+  const envUrl = (import.meta.env.VITE_API_BASE_URL || '').trim();
+  if (!envUrl) {
+    return '/api';
+  }
+  const clean = envUrl.replace(/\/+$/, '');
+  if (clean.endsWith('/api')) {
+    return clean;
+  }
+  return `${clean}/api`;
+}
 
-const API = axios.create({ baseURL: BASE_URL });
+const BASE_URL = getApiBaseUrl();
+
+const API = axios.create({
+  baseURL: BASE_URL,
+  timeout: 60000, // 60s timeout to allow Render free tier cold-start
+});
 
 // Attach JWT token to every request
 API.interceptors.request.use((config) => {
@@ -63,9 +77,9 @@ export function getErrorMessage(err) {
   // Network error — no response received at all
   if (!err.response) {
     if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
-      return 'Request timed out — the server may be starting up. Please try again in a moment.';
+      return 'Request timed out — server may be spinning up on free tier. Please retry in 30 seconds.';
     }
-    return 'Network error — please check your connection and try again.';
+    return 'Network error — please check your connection or wait 30-60s for server cold start.';
   }
 
   const status = err.response.status;

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getJobs, applyToJob } from '../services/api';
+import { getJobs, applyToJob, getErrorMessage } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import ScoreBadge from '../components/ScoreBadge';
 import { FiMapPin, FiBriefcase, FiSearch } from 'react-icons/fi';
@@ -23,7 +23,7 @@ export default function BrowseJobsPage() {
       await applyToJob({ job_posting: jobId });
       alert('Application submitted! Check your dashboard for match score.');
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to apply');
+      alert(getErrorMessage(err));
     } finally {
       setApplying(null);
     }

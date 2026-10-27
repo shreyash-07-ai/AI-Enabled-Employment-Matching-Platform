@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { createJob } from '../services/api';
+import { createJob, getErrorMessage } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 
 export default function PostJobPage() {
@@ -18,7 +18,7 @@ export default function PostJobPage() {
       await createJob(form);
       navigate('/my-jobs');
     } catch (err) {
-      alert('Failed to create job: ' + JSON.stringify(err.response?.data || 'Error'));
+      alert('Failed to create job: ' + getErrorMessage(err));
     } finally {
       setLoading(false);
     }

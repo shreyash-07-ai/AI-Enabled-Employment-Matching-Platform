@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { uploadResume, getMyResumes } from '../services/api';
+import { uploadResume, getMyResumes, getErrorMessage } from '../services/api';
 import { FiUploadCloud, FiFile, FiCheck } from 'react-icons/fi';
 import { useEffect } from 'react';
 
@@ -27,7 +27,7 @@ export default function UploadResumePage() {
       setSuccess(true);
       setFile(null);
     } catch (err) {
-      alert('Upload failed: ' + (err.response?.data?.error || 'Unknown error'));
+      alert('Upload failed: ' + getErrorMessage(err));
     } finally {
       setUploading(false);
     }

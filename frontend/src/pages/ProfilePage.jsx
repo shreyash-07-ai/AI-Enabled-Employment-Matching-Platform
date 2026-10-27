@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { getJobSeekerProfile, updateJobSeekerProfile, getRecruiterProfile, updateRecruiterProfile } from '../services/api';
+import { getJobSeekerProfile, updateJobSeekerProfile, getRecruiterProfile, updateRecruiterProfile, getErrorMessage } from '../services/api';
 
 export default function ProfilePage() {
   const { user } = useAuth();
@@ -27,7 +27,7 @@ export default function ProfilePage() {
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
-      alert('Failed to save: ' + JSON.stringify(err.response?.data || 'Error'));
+      alert('Failed to save: ' + getErrorMessage(err));
     } finally {
       setSaving(false);
     }
