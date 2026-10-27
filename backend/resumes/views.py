@@ -3,11 +3,16 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from .models import UploadedResume, JobApplication
 from .serializers import UploadedResumeSerializer, JobApplicationSerializer
-from .matching_engine import compute_match, extract_text_from_file, extract_skills_from_text
 from jobs.models import JobPosting
 
 import logging
 log = logging.getLogger(__name__)
+
+# matching_engine is intentionally NOT imported at module level.
+# Each view method that needs it imports the specific function(s) lazily so
+# that the heavy sentence_transformers / torch stack is never touched during
+# Django / Gunicorn startup.  This keeps the worker startup time well within
+# Render's 30-second timeout and avoids OOM on the free-tier 512 MB instance.
 
 
 class UploadedResumeCreateView(generics.CreateAPIView):
@@ -18,6 +23,7 @@ class UploadedResumeCreateView(generics.CreateAPIView):
         resume = serializer.save(job_seeker=self.request.user.job_seeker_profile)
         # Synchronous parsing (Celery optional — works without Redis)
         try:
+            from .matching_engine import extract_text_from_file, extract_skills_from_text
             file_path = resume.file.path
             raw_text = extract_text_from_file(file_path)
             if raw_text.strip():
@@ -26,7 +32,7 @@ class UploadedResumeCreateView(generics.CreateAPIView):
                 resume.extracted_skills = ", ".join(skills)
                 resume.save()
         except Exception as e:
-            log.error(f"Resume parse error: {e}")
+            log.error("Resume parse error: %s", e)
 
 
 class MyResumesView(generics.ListAPIView):
@@ -43,6 +49,8 @@ class ApplyJobView(APIView):
     permission_classes = (permissions.IsAuthenticated,)
 
     def post(self, request):
+        from .matching_engine import compute_match
+
         job_id = request.data.get('job_posting')
         resume_id = request.data.get('resume')
 
@@ -78,7 +86,7 @@ class ApplyJobView(APIView):
             try:
                 match_result = compute_match(resume_text, job.description)
             except Exception as e:
-                log.error(f"Match computation error: {e}")
+                log.error("Match computation error: %s", e)
 
         application = JobApplication.objects.create(
             job_posting=job,
@@ -138,6 +146,8 @@ class MatchAnalysisView(APIView):
     permission_classes = (permissions.IsAuthenticated,)
 
     def get(self, request, application_id):
+        from .matching_engine import compute_match
+
         try:
             app = JobApplication.objects.select_related(
                 'resume', 'job_posting'
@@ -160,6 +170,9 @@ class RecommendedJobsView(APIView):
     permission_classes = (permissions.IsAuthenticated,)
 
     def get(self, request):
+        from .matching_engine import compute_match
+        from jobs.serializers import JobPostingSerializer
+
         profile = request.user.job_seeker_profile
         latest_resume = profile.resumes.order_by('-uploaded_at').first()
 
@@ -173,7 +186,6 @@ class RecommendedJobsView(APIView):
         for job in active_jobs:
             try:
                 result = compute_match(resume_text, job.description)
-                from jobs.serializers import JobPostingSerializer
                 job_data = JobPostingSerializer(job).data
                 job_data['match_score_pct'] = result['match_score_pct']
                 job_data['matched_skills'] = result['matched_skills']

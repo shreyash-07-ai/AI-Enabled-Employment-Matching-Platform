@@ -35,10 +35,19 @@ SECRET_KEY = os.environ.get(
 # Set DEBUG=False on Render.
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-# Comma-separated list of allowed hosts, e.g. "your-app.onrender.com"
-# Set ALLOWED_HOSTS environment variable on Render.
+# Comma-separated list of allowed hosts.
+# On Render: set ALLOWED_HOSTS to your service hostname, e.g. "your-app.onrender.com".
+# Render also injects RENDER_EXTERNAL_HOSTNAME automatically — we add that too
+# so the service works even before you manually configure ALLOWED_HOSTS.
 _raw_allowed = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1')
 ALLOWED_HOSTS = [h.strip() for h in _raw_allowed.split(',') if h.strip()]
+
+# Render injects this env-var automatically with the public hostname of the
+# service (e.g. matchai-backend-xxxx.onrender.com).  Add it if present so
+# the service works on the very first deploy without manual configuration.
+_render_hostname = os.environ.get('RENDER_EXTERNAL_HOSTNAME', '').strip()
+if _render_hostname and _render_hostname not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(_render_hostname)
 
 # ---------------------------------------------------------------------------
 # Application definition
@@ -242,3 +251,14 @@ CELERY_TASK_SERIALIZER = 'json'
 # For development without Redis, uncomment these instead:
 # CELERY_ALWAYS_EAGER = True
 # CELERY_EAGER_PROPAGATES_EXCEPTIONS = True
+
+# ---------------------------------------------------------------------------
+# AI / SBERT configuration
+# ---------------------------------------------------------------------------
+# Set SBERT_ENABLED=False in Render environment variables to disable neural
+# (Sentence-Transformer) matching and rely on TF-IDF + BM25 only.
+# Useful if the Render free-tier 512 MB instance runs out of memory when
+# loading the ~300 MB torch + all-MiniLM-L6-v2 model on first scoring call.
+# The app, authentication, jobs, and resume upload all continue to work;
+# only match_score_pct will be computed differently (TF-IDF weighted 100%).
+# Default: True (SBERT attempted; falls back gracefully on failure)
