@@ -14,20 +14,19 @@ This module provides:
 Startup-safety design
 ---------------------
 * sentence_transformers, torch, and transformers are NEVER imported at module
-  level.  They are imported inside _get_sbert_model() the very first time
-  a scoring call actually needs them, i.e. when a user submits a job
-  application or requests a match analysis.
-* If the import fails (missing package, OOM, numpy ABI mismatch) the flag
-  SBERT_AVAILABLE is set to False and the engine falls back to TF-IDF + BM25
-  with weight redistribution so matching still works — just without the
-  neural component.
-* sklearn, pdfminer, and python-docx are lightweight enough that importing
-  them at module level is safe.
+  level.  They are imported inside _get_sbert_model() the very first time a
+  scoring call needs them — i.e. when a user submits a job application or
+  requests a match analysis.
+* If SBERT_ENABLED=False (env-var) the heavy stack is never touched at all.
+* If the import fails (OOM, missing package, ABI mismatch) SBERT_AVAILABLE is
+  set False permanently and the engine falls back to TF-IDF + BM25.
+* sklearn, pdfminer, and python-docx are lightweight and safe to import at
+  module level.
 """
 
+import os
 import re
 import logging
-import hashlib
 from pathlib import Path
 
 import nltk
@@ -40,23 +39,29 @@ from sklearn.metrics.pairwise import cosine_similarity
 from pdfminer.high_level import extract_text as pdf_extract
 import docx
 
-# ── Optional: BM25 ──────────────────────────────────────────────────
+log = logging.getLogger(__name__)
+
+# Suppress noisy pdfminer logging
+logging.getLogger("pdfminer").setLevel(logging.ERROR)
+
+# ── Optional: BM25 ──────────────────────────────────────────────────────────
 try:
     from rank_bm25 import BM25Okapi
     BM25_AVAILABLE = True
 except ImportError:
     BM25_AVAILABLE = False
 
-# ── SBERT availability flag ──────────────────────────────────────────
-# We do NOT attempt to import sentence_transformers here.
-# The actual import happens lazily inside _get_sbert_model() so it
-# never touches the heavy torch/transformers stack during Django startup.
-# This flag is updated to False permanently if the first load attempt fails.
-SBERT_AVAILABLE = True   # optimistic; flipped to False on first load error
+# ── SBERT availability ───────────────────────────────────────────────────────
+# Check env-var at module load time so weight normalisation in compute_match()
+# uses the correct baseline even before the first scoring call.
+# The actual import of sentence_transformers happens lazily in _get_sbert_model().
+_sbert_env = os.environ.get("SBERT_ENABLED", "False").strip().lower()
+SBERT_AVAILABLE = _sbert_env not in ("false", "0", "no")
 
-# ── NLTK bootstrap ──────────────────────────────────────────────────
-logging.getLogger("pdfminer").setLevel(logging.ERROR)
+if not SBERT_AVAILABLE:
+    log.info("SBERT disabled via SBERT_ENABLED env-var; using TF-IDF + BM25 only.")
 
+# ── NLTK bootstrap ───────────────────────────────────────────────────────────
 _NLTK_DOWNLOADED = False
 
 
@@ -68,18 +73,14 @@ def ensure_nltk_data():
     for pkg in ["punkt", "stopwords", "punkt_tab"]:
         try:
             nltk.download(pkg, quiet=True)
-        except Exception as e:
-            logging.getLogger(__name__).warning(
-                "Could not download NLTK package %s: %s", pkg, e
-            )
+        except Exception as exc:
+            log.warning("Could not download NLTK package %s: %s", pkg, exc)
     _NLTK_DOWNLOADED = True
 
 
-log = logging.getLogger(__name__)
-
-# ════════════════════════════════════════════════════════════════════
-# KNOWN SKILLS DATABASE  (expandable)
-# ════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
+# KNOWN SKILLS DATABASE
+# ════════════════════════════════════════════════════════════════════════════
 KNOWN_SKILLS = {
     # Programming
     "python", "java", "javascript", "typescript", "c++", "c#", "c", "go",
@@ -106,41 +107,28 @@ KNOWN_SKILLS = {
     "project management", "agile", "scrum", "jira",
 }
 
-# Mapping of synonyms to canonical skill names for semantic equivalence
 SKILL_SYNONYMS = {
-    "js": "javascript",
-    "ts": "typescript",
-    "node.js": "node",
-    "nodejs": "node",
-    "react.js": "react",
-    "reactjs": "react",
-    "vue.js": "vue",
-    "vuejs": "vue",
-    "angular.js": "angular",
-    "angularjs": "angular",
-    "next.js": "next",
-    "nuxt.js": "nuxt",
+    "js": "javascript", "ts": "typescript",
+    "node.js": "node", "nodejs": "node",
+    "react.js": "react", "reactjs": "react",
+    "vue.js": "vue", "vuejs": "vue",
+    "angular.js": "angular", "angularjs": "angular",
+    "next.js": "next", "nuxt.js": "nuxt",
     "express.js": "express",
-    "scikit learn": "scikit-learn",
-    "sklearn": "scikit-learn",
-    "tf": "tensorflow",
-    "k8s": "kubernetes",
-    "postgres": "postgresql",
-    "mongo": "mongodb",
-    "ml": "machine learning",
-    "dl": "deep learning",
-    "natural language processing": "nlp",
-    "cv": "computer vision",
-    "managed team": "leadership",
-    "led team": "leadership",
-    "team lead": "leadership",
-    "scripting": "python",
+    "scikit learn": "scikit-learn", "sklearn": "scikit-learn",
+    "tf": "tensorflow", "k8s": "kubernetes",
+    "postgres": "postgresql", "mongo": "mongodb",
+    "ml": "machine learning", "dl": "deep learning",
+    "natural language processing": "nlp", "cv": "computer vision",
+    "managed team": "leadership", "led team": "leadership",
+    "team lead": "leadership", "scripting": "python",
     "data analysis tools": "data analysis",
 }
 
-# ════════════════════════════════════════════════════════════════════
+
+# ════════════════════════════════════════════════════════════════════════════
 # TEXT EXTRACTION
-# ════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
 _STOP_WORDS = None
 
 
@@ -156,8 +144,8 @@ def get_stop_words():
 def extract_pdf(path: str) -> str:
     try:
         return pdf_extract(path) or ""
-    except Exception as e:
-        log.warning("PDF extraction failed [%s]: %s", path, e)
+    except Exception as exc:
+        log.warning("PDF extraction failed [%s]: %s", path, exc)
         return ""
 
 
@@ -170,8 +158,8 @@ def extract_docx(path: str) -> str:
                 for cell in row.cells:
                     parts.append(cell.text)
         return " ".join(parts)
-    except Exception as e:
-        log.warning("DOCX extraction failed [%s]: %s", path, e)
+    except Exception as exc:
+        log.warning("DOCX extraction failed [%s]: %s", path, exc)
         return ""
 
 
@@ -179,16 +167,15 @@ def extract_text_from_file(path: str) -> str:
     ext = Path(path).suffix.lower()
     if ext == ".pdf":
         return extract_pdf(path)
-    elif ext in (".docx", ".doc"):
+    if ext in (".docx", ".doc"):
         return extract_docx(path)
-    else:
-        log.warning("Unsupported file type: %s", path)
-        return ""
+    log.warning("Unsupported file type: %s", path)
+    return ""
 
 
-# ════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
 # NLP PREPROCESSING
-# ════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
 def clean_text(text: str) -> str:
     """Lowercase, strip URLs/emails, remove non-alphanumeric, remove stopwords."""
     ensure_nltk_data()
@@ -202,20 +189,15 @@ def clean_text(text: str) -> str:
 
 
 def extract_skills_from_text(text: str) -> list:
-    """Extract known skills from raw text using both direct match and synonyms."""
+    """Extract known skills from raw text using direct match and synonyms."""
     text_lower = text.lower()
     found = set()
-
-    # Direct skill matching
     for skill in KNOWN_SKILLS:
         if re.search(r'\b' + re.escape(skill) + r'\b', text_lower):
             found.add(skill)
-
-    # Synonym matching
     for synonym, canonical in SKILL_SYNONYMS.items():
         if re.search(r'\b' + re.escape(synonym) + r'\b', text_lower):
             found.add(canonical)
-
     return sorted(found)
 
 
@@ -229,47 +211,46 @@ def extract_keywords(text: str, top_n: int = 30) -> list:
         return []
 
 
-# ════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
 # SCORING ENGINES
-# ════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
 def tfidf_score(resume_text: str, jd_text: str) -> float:
     """Cosine similarity between resume and JD using TF-IDF vectors."""
     vec = TfidfVectorizer()
-    mat = vec.fit_transform([resume_text, jd_text])
-    sim = cosine_similarity(mat[0:1], mat[1:2])[0][0]
-    return float(sim)
+    try:
+        mat = vec.fit_transform([resume_text, jd_text])
+        return float(cosine_similarity(mat[0:1], mat[1:2])[0][0])
+    except Exception as exc:
+        log.warning("TF-IDF scoring failed: %s", exc)
+        return 0.0
 
 
 def bm25_score(resume_text: str, jd_text: str) -> float:
     """BM25 relevance score clamped to [0, 1].
 
     BM25 raw scores can be negative when IDF penalties dominate for very
-    short documents or mismatched vocabularies.  We clamp the raw score to
-    zero before normalising so the result is always in [0, 1].
+    short documents or mismatched vocabularies. We clamp to zero before
+    normalising so the result is always in [0, 1].
     """
     if not BM25_AVAILABLE:
         return 0.0
-    corpus = [resume_text.split()]
-    bm25 = BM25Okapi(corpus)
-    query = jd_text.split()
-    raw_scores = bm25.get_scores(query)
-    # Clamp each score to 0 so negative penalisation doesn't drag the result below 0
-    scores = [max(0.0, s) for s in raw_scores]
-    max_s = max(scores) if max(scores) > 0 else 1
-    return float(scores[0] / max_s)
+    try:
+        corpus = [resume_text.split()]
+        bm25 = BM25Okapi(corpus)
+        query = jd_text.split()
+        raw_scores = bm25.get_scores(query)
+        scores = [max(0.0, s) for s in raw_scores]
+        max_s = max(scores) if max(scores) > 0 else 1
+        return float(scores[0] / max_s)
+    except Exception as exc:
+        log.warning("BM25 scoring failed: %s", exc)
+        return 0.0
 
 
-# ── Lazy SBERT singleton ─────────────────────────────────────────────────
-# sentence_transformers, torch, and transformers are imported HERE, inside
-# this function, the very first time a scoring call needs them.  They are
-# NEVER touched during Django / Gunicorn startup.
-#
-# Memory note for Render free tier (512 MB):
-#   all-MiniLM-L6-v2 requires ~90 MB of RAM to load.
-#   torch itself adds ~200 MB.  Total ~300 MB, which fits in 512 MB provided
-#   no other large libraries are resident.  If the worker is killed with OOM,
-#   consider upgrading to Render Starter (2 GB) or disabling SBERT via the
-#   SBERT_ENABLED=False environment variable (see below).
+# ── Lazy SBERT singleton ─────────────────────────────────────────────────────
+# sentence_transformers / torch / transformers are imported here, inside this
+# function, the very first time a scoring call needs them.
+# They are NEVER touched during Django / Gunicorn startup.
 _sbert_model = None
 _sbert_load_attempted = False
 
@@ -277,36 +258,31 @@ _sbert_load_attempted = False
 def _get_sbert_model():
     """
     Return the loaded SBERT model, loading it on the first call.
-    Returns None if the package is unavailable or loading failed.
-    SBERT_AVAILABLE is set to False after the first failed attempt so
-    subsequent calls short-circuit immediately without retrying.
+    Returns None if SBERT is disabled or unavailable.
+    SBERT_AVAILABLE is set False permanently after the first failed attempt.
     """
     global _sbert_model, _sbert_load_attempted, SBERT_AVAILABLE
 
-    # Short-circuit if already known to be unavailable
     if not SBERT_AVAILABLE:
         return None
 
-    # Short-circuit if already successfully loaded
     if _sbert_model is not None:
         return _sbert_model
 
-    # Guard against a second concurrent load attempt
+    # Guard: only one load attempt ever
     if _sbert_load_attempted:
         return None
-
     _sbert_load_attempted = True
 
-    # Check environment override: set SBERT_ENABLED=False to skip neural scoring
-    import os
-    if os.environ.get("SBERT_ENABLED", "True").strip().lower() in ("false", "0", "no"):
-        log.info("SBERT disabled via SBERT_ENABLED env-var; using TF-IDF + BM25 only.")
+    # Re-check env-var in case it changed between module import and first call
+    _env_val = os.environ.get("SBERT_ENABLED", "False").strip().lower()
+    if _env_val in ("false", "0", "no"):
+        log.info("SBERT disabled via SBERT_ENABLED env-var.")
         SBERT_AVAILABLE = False
         return None
 
-    # Perform the heavyweight import now (not at Django startup)
     try:
-        log.info("Loading sentence-transformers (first request) ...")
+        log.info("Loading sentence-transformers model (first scoring request)...")
         from sentence_transformers import SentenceTransformer  # noqa: PLC0415
         _sbert_model = SentenceTransformer("all-MiniLM-L6-v2")
         log.info("SBERT model loaded successfully.")
@@ -337,30 +313,30 @@ def sbert_score(resume_text: str, jd_text: str) -> float:
         return 0.0
 
 
-# ════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
 # COMBINED MATCHING
-# ════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
 def compute_match(resume_text: str, jd_text: str,
                   tfidf_weight: float = 0.25,
                   bm25_weight: float = 0.15,
                   sbert_weight: float = 0.60) -> dict:
     """
-    Master matching function.  Returns a rich result dict with:
+    Master matching function. Returns a rich result dict with:
       - match_score_pct
       - tfidf_score, bm25_score, sbert_score (individual)
       - matched_skills, missing_skills
-      - resume_suggestions
+      - suggestions
+      - engines_used
     """
     clean_resume = clean_text(resume_text)
     clean_jd = clean_text(jd_text)
 
-    # ── Individual scores ────────────────────────────────────────
+    # Individual scores
     tf = tfidf_score(clean_resume, clean_jd)
     bm = bm25_score(clean_resume, clean_jd) if BM25_AVAILABLE else 0.0
-    # SBERT_AVAILABLE may have been updated by a previous call to _get_sbert_model
     sb = sbert_score(clean_resume, clean_jd) if SBERT_AVAILABLE else 0.0
 
-    # Adjust weights if optional engines are missing
+    # Redistribute weights for unavailable engines
     actual_tf_w = tfidf_weight
     actual_bm_w = bm25_weight if BM25_AVAILABLE else 0.0
     actual_sb_w = sbert_weight if SBERT_AVAILABLE else 0.0
@@ -373,13 +349,13 @@ def compute_match(resume_text: str, jd_text: str,
     combined = actual_tf_w * tf + actual_bm_w * bm + actual_sb_w * sb
     match_pct = round(combined * 100, 2)
 
-    # ── Skill analysis ───────────────────────────────────────────
+    # Skill analysis
     resume_skills = set(extract_skills_from_text(resume_text))
     jd_skills = set(extract_skills_from_text(jd_text))
     matched_skills = sorted(resume_skills & jd_skills)
     missing_skills = sorted(jd_skills - resume_skills)
 
-    # ── Suggestions ──────────────────────────────────────────────
+    # Improvement suggestions
     suggestions = []
     if missing_skills:
         suggestions.append(
@@ -426,7 +402,6 @@ def rank_candidates(resumes: list, jd_text: str) -> list:
         match["resume_id"] = r["id"]
         match["resume_name"] = r["name"]
         results.append(match)
-
     results.sort(key=lambda x: x["match_score_pct"], reverse=True)
     for i, item in enumerate(results, start=1):
         item["rank"] = i

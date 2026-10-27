@@ -3,23 +3,33 @@ services:
     name: matchai-backend
     runtime: python
     rootDir: backend
+    # Python version must match what's set in the Render service environment.
+    # Set PYTHON_VERSION=3.11.9 in Render environment variables (already done).
     buildCommand: >-
+      pip install --upgrade pip &&
       pip install -r requirements-render.txt &&
-      python manage.py migrate &&
+      python manage.py migrate --noinput &&
       python manage.py collectstatic --noinput
-    startCommand: gunicorn core.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+    # 1 worker: free tier has 1 shared CPU; --timeout 120 gives the first
+    # SBERT load attempt up to 2 minutes before Gunicorn kills the worker.
+    # If SBERT_ENABLED=False (recommended for free tier) the timeout is never
+    # reached because startup is <2 seconds.
+    startCommand: >-
+      gunicorn core.wsgi:application
+      --bind 0.0.0.0:$PORT
+      --workers 1
+      --timeout 120
+      --log-level info
     plan: free
-    pythonVersion: "3.11.9"
     envVars:
       - key: SECRET_KEY
         generateValue: true
       - key: DEBUG
         value: "False"
-      # After first deploy, paste your exact Render hostname here.
-      # RENDER_EXTERNAL_HOSTNAME is also injected automatically by Render,
-      # so DisallowedHost is avoided even before you set this.
+      # RENDER_EXTERNAL_HOSTNAME is injected automatically by Render.
+      # You can also set ALLOWED_HOSTS explicitly after the first deploy.
       - key: ALLOWED_HOSTS
-        sync: false
+        value: "ai-enabled-employment-matching-platform-1.onrender.com"
       - key: CORS_ALLOWED_ORIGINS
         value: "https://ai-employment-matching.vercel.app"
       - key: CSRF_TRUSTED_ORIGINS
@@ -28,11 +38,11 @@ services:
         fromDatabase:
           name: matchai-db
           property: connectionString
-      # Set to "False" to skip neural (SBERT) scoring on the free 512 MB tier.
-      # The app still works fully; match scores use TF-IDF + BM25 only.
+      # Set SBERT_ENABLED=False on free tier (512 MB RAM).
+      # Set True on Starter+ plans for full neural matching.
       - key: SBERT_ENABLED
-        value: "True"
-      # Optional — set only if you provision a Redis add-on for Celery.
+        value: "False"
+      # REDIS_URL is optional. Without it, Celery runs tasks synchronously.
       - key: REDIS_URL
         sync: false
 
